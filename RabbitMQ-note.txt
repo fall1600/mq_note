@@ -1,0 +1,65 @@
+由於RabbitMQ 是使用AMQP 這個資料傳輸協定, 所以一般的程式若要跟RabbitMQ 溝通, 就要安裝支援AMQP 的函式庫
+
+Log 或 設定檔放在AppData底下
+	%APPDATA% usually expands to C:\Users\%USERNAME%\AppData\Roaming or similar.
+
+通訊協定的操作是由 Channel (interface) 處理的
+Connection 
+	開 channel
+	註冊連線(connection lifecycle)的事件處理
+	由 ConnectionFactory 建實體(instantiate)
+	連線設定 (vhost, username)
+	
+	作法一
+		ConnectionFactory factory = new ConnectionFactory();
+		factory.setUsername(userName);
+		factory.setPassword(password);
+		factory.setVirtualHost(virtualHost);
+		factory.setHost(hostName);
+		factory.setPort(portNumber);
+		Connection conn = factory.newConnection();
+
+	作法二
+		ConnectionFactory factory = new ConnectionFactory();
+		factory.setUri("amqp://userName:password@hostName:portNumber/virtualHost");
+		Connection conn = factory.newConnection();
+	
+	之後再
+		Channel channel = conn.createChannel();
+	
+	結束時
+		channel.close();
+		conn.close();
+
+Queue
+	queue 名稱必須是unique, 重複會報錯
+		RabbitMQ doesn't allow you to redefine an existing queue with different parameters and will return an error to any program that tries to do that
+	queue 名稱可由server 負責產生, consumer 再從server 拿queue_name 即可
+	
+Exchange
+	大原則: producer送出的message 攜帶routing key, 走符合binding key 的channel
+	channel當初沒設名稱則走預設 exchange, 給空字串("")
+		channel.basicPublish(exchange_name, queue_name, props, message.getBytes()); // 第三個參數可為null, 本意為該channel 的設定
+		channel.exchangeDeclare(exchange_name, exchange_type); // ex. "logs", "fanout"
+	種類
+		direct: exchange 丟訊息給綁定的queue, by binding key (a message goes to the queues whose binding key exactly matches the routing key of the message)
+		topic: 類似 RegularExpression, 可以設定 binding key pattern, 訂閱想收到的queue
+			* (star) can substitute for exactly one word
+			# (hash) can substitute for zero or more words
+			"*.orange.*": orange 的各種東西
+			"*.*.rabbit": 各種rabbit
+			"lazy.#": 所有前面是 lazy的所有東西
+		headers:
+		fanout: 全部的queue都送, 後續的queue 到 consumer 的sending 也不用給routing-key
+	與 queue 的binding
+		channel.queueBind(queue_name, exchange_name, routing_key);
+	logs message的routing 邏輯
+		送訊息的(producer)不用知道是走哪個queue, 所以不須設定queue_name; 收訊息的(consumer)自己從server 那邊拿queue_name就好
+		也就是說, consumer 自己得做exchange 和 queue 的binding
+		
+Queue_name 大亂怎麼辦 XDD
+
+工作人員(consumer) 有分階級, 訊息應該設定誰能收誰不能收, 使用topic 作為訊息的分級 (RabbitMQ-topic-test.jpeg)
+	中文嘛欸通
+
+	
