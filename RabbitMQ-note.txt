@@ -2,7 +2,7 @@
 
 Log 或 設定檔放在AppData底下
 	%APPDATA% usually expands to C:\Users\%USERNAME%\AppData\Roaming or similar.
-
+	
 通訊協定的操作是由 Channel (interface) 處理的
 Connection 
 	開 channel
@@ -10,6 +10,7 @@ Connection
 	由 ConnectionFactory 建實體(instantiate)
 	連線設定 (vhost, username)
 	
+	// 這裡要改
 	作法一
 		ConnectionFactory factory = new ConnectionFactory();
 		factory.setUsername(userName);
@@ -30,14 +31,28 @@ Connection
 	結束時
 		channel.close();
 		conn.close();
+	// 改到這裡
+
+channel: 從producer 到 consumer 整條路
+queue: 路上的buffer 
+送的方式: channel.basicPublish()
+
+大原則: producer送出的message 攜帶routing key, 走符合binding key 的channel
 
 Queue
 	queue 名稱必須是unique, 重複會報錯
 		RabbitMQ doesn't allow you to redefine an existing queue with different parameters and will return an error to any program that tries to do that
 	queue 名稱可由server 負責產生, consumer 再從server 拿queue_name 即可
+	queue 存在RabbitMQ 中, 大小似乎是無限大, 可能嗎?!
+		A queue is not bound by any limits, it can store as many messages as you like - it's essentially an infinite buffer.
+	queue 一旦建立了就不能改變參數
+		RabbitMQ doesn't allow you to redefine an existing queue with different parameters and will return an error to any program that tries to do that
+	要改的話producer 和consumer 得一起改才能work
+		This queueDeclare change needs to be applied to both the producer and consumer code.
 	
 Exchange
-	大原則: producer送出的message 攜帶routing key, 走符合binding key 的channel
+	收到來自producer 的message, 丟給該送的queue
+		比較像是郵局, producer 跟郵局(exchange)說要寄給誰, 郵局再根據需求(rules, 也就是下面說的種類, exchange type) 將message 丟到不同的信箱(queue)
 	channel當初沒設名稱則走預設 exchange, 給空字串("")
 		channel.basicPublish(exchange_name, queue_name, props, message.getBytes()); // 第三個參數可為null, 本意為該channel 的設定
 		channel.exchangeDeclare(exchange_name, exchange_type); // ex. "logs", "fanout"
@@ -56,7 +71,22 @@ Exchange
 	logs message的routing 邏輯
 		送訊息的(producer)不用知道是走哪個queue, 所以不須設定queue_name; 收訊息的(consumer)自己從server 那邊拿queue_name就好
 		也就是說, consumer 自己得做exchange 和 queue 的binding
-		
+
+訊息負載(或效能)的設定
+	RabbitMQ 預設輪流(Round-robin dispatching) 分配給consumer
+		但輪流也並非公平, 設定basicQos 為1: 代表worker 一次只接受1 份工作, 做完再拿新工作
+			int prefetchCount = 1;
+			channel.basicQos(prefetchCount);
+	RabbitMQ gg 時會忘記queue 和message, 讓task 在RabbitMQ restart 時還存在的兩個設定
+		1. queue 的durable 要設為 true
+			boolean durable = true;
+			channel.queueDeclare(TASK_QUEUE_NAME, durable, false, false, null);
+		2. message publish 的方式要設為 persistent
+			channel.basicPublish("", "task_queue", 
+			MessageProperties.PERSISTENT_TEXT_PLAIN,
+			message.getBytes());
+			//靠腰, 結果官方說persistent 也不是真的都沒問題, stronger 的辦法: publisher confirm
+	
 Queue_name 大亂怎麼辦 XDD
 
 工作人員(consumer) 有分階級, 訊息應該設定誰能收誰不能收, 使用topic 作為訊息的分級 (RabbitMQ-topic-test.jpeg)
